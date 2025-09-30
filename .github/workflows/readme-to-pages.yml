@@ -1,0 +1,69 @@
+name: README → HTML (GitHub Pages)
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - README.md
+      - .github/workflows/readme-to-pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write   # necessário para commitar o HTML gerado
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Converter README.md → docs/index.html
+        run: |
+          mkdir -p docs
+
+          # Converte o Markdown para HTML simples com "marked" (via npx)
+          npx --yes marked@12 README.md > docs/__content.html
+
+          # Prefixo/sufixo HTML mínimos (com <base> para manter links/figuras relativos funcionando)
+          cat > docs/__prefix.html <<'HTML'
+          <!doctype html>
+          <html lang="pt-br">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width,initial-scale=1">
+            <title>README</title>
+            <!-- Se seu README usa caminhos relativos (./img, ./images, etc.),
+                 este base aponta para a raiz do repo (um nível acima de /docs). -->
+            <base href="../">
+            <style>
+              :root { color-scheme: light dark; }
+              body { max-width: 900px; margin: 40px auto; padding: 0 16px;
+                     font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Arial, sans-serif;
+                     line-height: 1.6; }
+              pre, code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+              img { max-width: 100%; height: auto; }
+              a { text-decoration: none; }
+              a:hover { text-decoration: underline; }
+            </style>
+          </head>
+          <body>
+          HTML
+
+          cat > docs/__suffix.html <<'HTML'
+          </body>
+          </html>
+          HTML
+
+          # Junta tudo em docs/index.html
+          cat docs/__prefix.html docs/__content.html docs/__suffix.html > docs/index.html
+          rm docs/__prefix.html docs/__content.html docs/__suffix.html
+
+      - name: Commit do HTML gerado
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: 'chore(pages): atualizar docs/index.html a partir do README.md'
+          file_pattern: docs/index.html
