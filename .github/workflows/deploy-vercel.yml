@@ -1,15 +1,25 @@
-name: Build README -> Static Page & Deploy to Vercel
+name: README → Static Page (Vercel)
 
 on:
-  push:
-    branches: [main, man]
+  pull_request:
+    branches: [master]
     paths:
       - README.md
-      - .github/workflows/deploy-vercel.yml
+      - .github/workflows/vercel-readme.yml
+      - vercel.json
+  push:
+    branches: [master]
+    paths:
+      - README.md
+      - .github/workflows/vercel-readme.yml
       - vercel.json
 
+concurrency:
+  group: vercel-readme-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -21,11 +31,11 @@ jobs:
         with:
           node-version: 20
 
-      # Converte README.md -> dist/index.html
       - name: Build static HTML from README.md
         run: |
           mkdir -p dist
           npm i -g marked@12
+
           cat > dist/_prefix.html <<'HTML'
           <!doctype html>
           <html lang="pt-br">
@@ -34,15 +44,21 @@ jobs:
             <meta name="viewport" content="width=device-width,initial-scale=1">
             <title>README</title>
             <style>
-              body { max-width: 900px; margin: 40px auto; padding: 0 16px; font-family: system-ui, sans-serif; line-height: 1.6; }
-              pre, code { font-family: monospace; }
+              :root { color-scheme: light dark; }
+              body { max-width: 900px; margin: 40px auto; padding: 0 16px; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, 'Noto Sans', 'Liberation Sans', sans-serif; line-height: 1.6; }
+              pre, code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
               img { max-width: 100%; height: auto; }
+              a { text-decoration: none; }
+              a:hover { text-decoration: underline; }
+              .container { border-radius: 16px; padding: 24px; }
             </style>
           </head>
           <body>
+            <div class="container">
           HTML
 
           cat > dist/_suffix.html <<'HTML'
+            </div>
           </body>
           </html>
           HTML
@@ -51,16 +67,43 @@ jobs:
           cat dist/_prefix.html dist/_content.html dist/_suffix.html > dist/index.html
           rm dist/_prefix.html dist/_content.html dist/_suffix.html
 
-      - name: Deploy to Vercel (Production)
+          # Se seu README usa imagens/arquivos locais, copie-os:
+          [ -d assets ] && cp -R assets dist/assets || true
+          [ -d images ] && cp -R images dist/images || true
+          [ -d img ] && cp -R img dist/img || true
+
+      - name: Install Vercel CLI
+        run: npm i -g vercel@latest
+
+      - name: Vercel pull (config)
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
-          npm i -g vercel@latest
-          vercel pull --yes --environment=production \
+          vercel pull --yes --environment=${{ github.event_name == 'push' && 'production' || 'preview' }} \
             --token "$VERCEL_TOKEN" \
             --project-id "$VERCEL_PROJECT_ID"
 
-          vercel deploy --prod --yes \
-            --token "$VERCEL_TOKEN" \
-            --cwd ./dist
+      # Deploy de PREVIEW quando for PR
+      - name: Deploy Preview (PR to master)
+        if: ${{ github.event_name == 'pull_request' }}
+        id: deploy_preview
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          url=$(vercel deploy --yes --token "$VERCEL_TOKEN" --cwd ./dist | grep -Eo 'https://[^ ]+\.vercel\.app' | tail -n1)
+          echo "preview_url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Show Preview URL
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          echo "### ✅ Preview gerado" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.deploy_preview.outputs.preview_url }}" >> $GITHUB_STEP_SUMMARY
+
+      # Deploy de PRODUÇÃO quando for push na master
+      - name: Deploy Production (push to master)
+        if: ${{ github.event_name == 'push' }}
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          vercel deploy --prod --yes --token "$VERCEL_TOKEN" --cwd ./dist
