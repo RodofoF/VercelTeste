@@ -1,0 +1,14 @@
+# lychee.toml
+max_retries = 3
+timeout = 20
+user_agent = "Mozilla/5.0 (compatible; Lychee CI)"
+accept = [200, 206, 301, 302, 308, 429]
+
+# Ignore esquemas não-HTTP(s)
+exclude = [
+  "mailto:*",
+  "tel:*",
+  # Sites que frequentemente bloqueiam CI:
+  "https://*.linkedin.com/*",
+  "https://*.instagram.com/*"
+]
